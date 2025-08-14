@@ -23,6 +23,7 @@ from detr.models.matcher import HungarianMatcher
 from detr.models.detr import SetCriterion
 
 from dataset import YoloV5MultiCamDataset, SetType, BoxType, multicam_collate_fn
+from vis import CSVLogger, show_pair, extract_components, plot_from_csv
 
 
 # ======================
@@ -155,76 +156,75 @@ def loss_from_dict(loss_dict: Dict[str, torch.Tensor], weight_dict: Dict[str, fl
 @torch.no_grad()
 def evaluate_epoch(model, criterion, val_loader, device):
     model.eval()
-    running = 0.0
+    criterion.eval()
+
+    totals = {"loss": 0.0, "ce": 0.0, "bbox": 0.0, "giou": 0.0, "card": 0.0}
     n_batches = 0
-    for i, batch in enumerate(val_loader):
+
+    for batch in val_loader:
         imgs0 = prepare_tensors(batch["img0"], device)
         imgs1 = prepare_tensors(batch["img1"], device)
-
         samples_rgb = nested_tensor_from_tensor_list(imgs0)
         samples_nir = nested_tensor_from_tensor_list(imgs1)
 
         outputs = model(samples_rgb, samples_nir)
-
-        # targets are already lists of dicts with "boxes" (cxcywh norm) and "labels"
         targets = [{k: v.to(device) for k, v in t.items()} for t in batch["target"]]
+
         loss_dict = criterion(outputs, targets)
+        comps = extract_components(loss_dict, criterion.weight_dict)
 
-        # if i % 50 == 0 and 'loss_ce' in loss_dict:
-        #     ce = loss_dict['loss_ce'].item()
-        #     bbox = loss_dict.get('loss_bbox', torch.tensor(0.)).item()
-        #     giou = loss_dict.get('loss_giou', torch.tensor(0.)).item()
-        #     card = loss_dict.get('cardinality_error', torch.tensor(0.)).item()
-        #     print(f"  ce:{ce:.3f} bbox:{bbox:.3f} giou:{giou:.3f} card:{card:.1f}")
-
-        running += loss_from_dict(loss_dict, criterion.weight_dict).item()
+        for k in totals:
+            totals[k] += comps[k]
         n_batches += 1
-    return running / max(1, n_batches)
+
+    if n_batches == 0:
+        return {k: 0.0 for k in totals}
+    return {k: v / n_batches for k, v in totals.items()}
 
 def train_epoch(model, criterion, optimizer, train_loader, device, epoch, max_norm=0.0):
     model.train()
     criterion.train()
-    running = 0.0
+
+    totals = {"loss": 0.0, "ce": 0.0, "bbox": 0.0, "giou": 0.0, "card": 0.0}
     n_batches = 0
     t0 = time.time()
 
     for i, batch in enumerate(train_loader):
         imgs0 = prepare_tensors(batch["img0"], device)
         imgs1 = prepare_tensors(batch["img1"], device)
-
         samples_rgb = nested_tensor_from_tensor_list(imgs0)
         samples_nir = nested_tensor_from_tensor_list(imgs1)
 
         outputs = model(samples_rgb, samples_nir)
-
         targets = [{k: v.to(device) for k, v in t.items()} for t in batch["target"]]
 
         loss_dict = criterion(outputs, targets)
         loss = loss_from_dict(loss_dict, criterion.weight_dict)
 
-        if i % 50 == 0 and 'loss_ce' in loss_dict:
-            ce = loss_dict['loss_ce'].item()
-            bbox = loss_dict.get('loss_bbox', torch.tensor(0.)).item()
-            giou = loss_dict.get('loss_giou', torch.tensor(0.)).item()
-            card = loss_dict.get('cardinality_error', torch.tensor(0.)).item()
-            print(f"  ce:{ce:.3f} bbox:{bbox:.3f} giou:{giou:.3f} card:{card:.1f}")
-
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
-
         if max_norm > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
         optimizer.step()
 
-        running += float(loss.item())
+        comps = extract_components(loss_dict, criterion.weight_dict)
+        for k in totals:
+            totals[k] += comps[k]
         n_batches += 1
 
         if (i + 1) % 50 == 0:
             it_s = time.time() - t0
             print(f"Epoch {epoch:03d} | Iter {i+1:05d}/{len(train_loader):05d} "
-                  f"| loss {running/n_batches:.4f} | {it_s/(i+1):.3f}s/it")
+                  f"| loss {totals['loss']/n_batches:.4f} "
+                  f"| ce {totals['ce']/n_batches:.3f} "
+                  f"| bbox {totals['bbox']/n_batches:.3f} "
+                  f"| giou {totals['giou']/n_batches:.3f} "
+                  f"| card {totals['card']/n_batches:.2f} "
+                  f"| {it_s/(i+1):.3f}s/it")
 
-    return running / max(1, n_batches)
+    if n_batches == 0:
+        return {k: 0.0 for k in totals}
+    return {k: v / n_batches for k, v in totals.items()}
 
 
 # ==================================
@@ -234,6 +234,10 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = "cpu"
+
+    # CSV logger
+    log_csv = os.path.join(OUTPUT_DIR, "training_log.csv")
+    logger = CSVLogger(log_csv)
 
     # Load the datasets
     train_ds, val_ds, train_loader, val_loader = make_loaders()
@@ -271,14 +275,23 @@ def main():
                 if n.startswith("backbone_rgb") or n.startswith("backbone_nir"):
                     p.requires_grad = True
 
-        tr_loss = train_epoch(model, criterion, optimizer, train_loader, device, epoch, max_norm=MAX_NORM)
+        tr = train_epoch(model, criterion, optimizer, train_loader, device, epoch, max_norm=MAX_NORM)
         lr_sched.step()
-        val_loss = evaluate_epoch(model, criterion, val_loader, device)
-        # val_loss = 0.0  # Disable validation for now, uncomment next line to enable
+        va = evaluate_epoch(model, criterion, val_loader, device)
 
-        print(f"Epoch {epoch:03d} done | train loss: {tr_loss:.4f} | val loss: {val_loss:.4f}")
+        # Current LR (first param group is fine to report)
+        cur_lr = optimizer.param_groups[0]["lr"]
 
-        # Save last + best
+        # Console summary
+        print(f"Epoch {epoch:03d} done | "
+            f"train loss: {tr['loss']:.4f} (ce {tr['ce']:.3f} bbox {tr['bbox']:.3f} giou {tr['giou']:.3f} card {tr['card']:.2f}) | "
+            f"val loss: {va['loss']:.4f} (ce {va['ce']:.3f} bbox {va['bbox']:.3f} giou {va['giou']:.3f} card {va['card']:.2f})")
+
+        # CSV log (two rows per epoch)
+        logger.log_epoch(epoch, "train", cur_lr, tr)
+        logger.log_epoch(epoch, "val",   cur_lr, va)
+
+        # Save last + best (unchanged)
         ckpt = {
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict(),
@@ -290,10 +303,14 @@ def main():
             }
         }
         torch.save(ckpt, os.path.join(OUTPUT_DIR, "checkpoint_last.pth"))
-        if val_loss < best_val:
-            best_val = val_loss
+        if va["loss"] < best_val:
+            best_val = va["loss"]
             torch.save(ckpt, os.path.join(OUTPUT_DIR, "checkpoint_best.pth"))
             print(f"  ↳ new best (val loss {best_val:.4f}) saved.")
+
+    # Close CSV and plot
+    logger.close()
+    plot_from_csv(log_csv, os.path.join(OUTPUT_DIR, "plots"))
 
     print("Training complete.")
 
