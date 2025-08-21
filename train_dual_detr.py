@@ -29,19 +29,19 @@ from vis import CSVLogger, show_pair, extract_components, plot_from_csv
 # ======================
 # ====== CONFIG ========
 # ======================
-OUTPUT_DIR       = "runs/dual_detr_r50_rivendale_v4"
-EPOCHS           = 100
-FROZEN_EPOCHS    = 10
+OUTPUT_DIR       = "runs/dual_detr_r50_rivendale_v5"
+EPOCHS           = 200
+FROZEN_EPOCHS    = 20
 BATCH_SIZE       = 2
 NUM_WORKERS      = 4
-BASE_LR          = 1e-4
-BACKBONE_LR      = 1e-5
-NEW_LR           = 1e-3
+BASE_LR          = 1e-3
+BACKBONE_LR      = 1e-4
+NEW_LR           = 1e-2
 WEIGHT_DECAY     = 1e-4
 LR_DROP_EPOCH    = 40
-MAX_NORM         = 0.1      # gradient clipping; 0 disables
+MAX_NORM         = 0.0      # gradient clipping; 0 disables
 
-DATA_ROOT        = "datasets/rivendale_v4"
+DATA_ROOT        = "datasets/rivendale_v5"
 CAM0_NAME        = "firefly_left"
 CAM1_NAME        = "ximea_demosaic"
 
@@ -161,6 +161,7 @@ def evaluate_epoch(model, criterion, val_loader, device):
     totals = {"loss": 0.0, "ce": 0.0, "bbox": 0.0, "giou": 0.0, "card": 0.0}
     n_batches = 0
 
+    # Comment out block for testing
     for batch in val_loader:
         imgs0 = prepare_tensors(batch["img0"], device)
         imgs1 = prepare_tensors(batch["img1"], device)

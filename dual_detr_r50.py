@@ -7,9 +7,6 @@ from detr.util.misc import NestedTensor, nested_tensor_from_tensor_list
 import detr_r50
 
 
-# ---------------------------
-# Small cross-attention block
-# ---------------------------
 class CrossEncFuse(nn.Module):
     """
     One residual cross-attention + FFN block:
@@ -45,9 +42,6 @@ class CrossEncFuse(nn.Module):
         return x  # (B,Sr,D)
 
 
-# -------------------------------------------
-# Dual-stream DETR: cross-fuse AFTER encoders
-# -------------------------------------------
 class DualDetrCrossEnc(nn.Module):
     """
     Build a 2-stream DETR that:

@@ -113,9 +113,9 @@ def load_pretrained(model: nn.Module, weights: str = "detr-r50-e632da11.pth"):
     if hasattr(incompat, "unexpected_keys"):
         print("  Unexpected keys:", incompat.unexpected_keys)
 
-def pretrained_detr_r50():
+def pretrained_detr_r50(weights="detr-r50-e632da11.pth"):
     model, postprocessors = build_detr(CFG)
-    load_pretrained(model, weights="detr-r50-e632da11.pth")
+    load_pretrained(model, weights=weights)
     return model, postprocessors
 
 def adapt_num_classes(model: nn.Module, num_classes: int):

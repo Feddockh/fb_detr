@@ -134,7 +134,7 @@ def multicam_collate_fn(batch):
 
 def main():
     dataset = YoloV5MultiCamDataset(
-        base_dir="rivendale_v4",
+        base_dir="datasets/rivendale_v4",
         cam0="firefly_left",
         cam1="ximea_demosaic",
         set_type=SetType.TRAIN,
