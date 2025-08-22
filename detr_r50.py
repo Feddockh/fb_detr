@@ -90,6 +90,15 @@ def build_detr(cfg: Cfg):
     postprocessors = {'bbox': PostProcess()}
     return model, postprocessors
 
+def build_detr_for_finetune(num_classes, cfg: Cfg = CFG):
+    """
+    Builds a DETR model with a specified number of classes, intended for
+    fine-tuning where the checkpoint may have a different number of classes.
+    """
+    # We can override the default config's num_classes here
+    cfg.num_classes = num_classes
+    return build_detr(cfg)
+
 # ------------------------
 # Weights loader (URL or local path)
 # ------------------------
@@ -106,6 +115,15 @@ def load_pretrained(model: nn.Module, weights: str = "detr-r50-e632da11.pth"):
     # official checkpoints store the model state under 'model'
     state_dict = ckpt.get("model", ckpt)
 
+    # If the number of classes in the checkpoint does not match the model,
+    # we pop the class_embed weights from the state_dict to avoid size mismatch errors.
+    model_num_classes = model.class_embed.weight.shape[0]
+    ckpt_num_classes = state_dict['class_embed.weight'].shape[0]
+    if model_num_classes != ckpt_num_classes:
+        print(f"  ↳ Deleting class_embed from checkpoint (model: {model_num_classes}, ckpt: {ckpt_num_classes})")
+        del state_dict['class_embed.weight']
+        del state_dict['class_embed.bias']
+
     incompat = model.load_state_dict(state_dict, strict=False)
     print("Loaded pretrained weights with strict=False")
     if hasattr(incompat, "missing_keys"):
@@ -113,8 +131,11 @@ def load_pretrained(model: nn.Module, weights: str = "detr-r50-e632da11.pth"):
     if hasattr(incompat, "unexpected_keys"):
         print("  Unexpected keys:", incompat.unexpected_keys)
 
-def pretrained_detr_r50(weights="detr-r50-e632da11.pth"):
-    model, postprocessors = build_detr(CFG)
+def pretrained_detr_r50(weights="detr-r50-e632da11.pth", num_classes=None):
+    if num_classes is not None:
+        model, postprocessors = build_detr_for_finetune(num_classes)
+    else:
+        model, postprocessors = build_detr(CFG)
     load_pretrained(model, weights=weights)
     return model, postprocessors
 

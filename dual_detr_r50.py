@@ -51,36 +51,36 @@ class DualDetrCrossEnc(nn.Module):
     Everything except the fuse block is initialized from a pretrained DETR.
     """
 
-    def __init__(self, base_detr: nn.Module, num_classes: int = 3, nhead: int = 8):
+    def __init__(self, base_detr_rgb: nn.Module, base_detr_nir: nn.Module, num_classes: int = 3, nhead: int = 8):
         super().__init__()
 
         # Clone / reuse pretrained parts
         # Backbones (two copies so each modality can specialize)
-        self.backbone_rgb = copy.deepcopy(base_detr.backbone)
-        self.backbone_nir = copy.deepcopy(base_detr.backbone)
+        self.backbone_rgb = copy.deepcopy(base_detr_rgb.backbone)
+        self.backbone_nir = copy.deepcopy(base_detr_nir.backbone)
 
         # Position enc is inside the Joiner(backbone, posenc) already
         # Input projection 1x1 (we can share one for both streams)
-        self.input_proj   = copy.deepcopy(base_detr.input_proj)
+        self.input_proj   = copy.deepcopy(base_detr_rgb.input_proj)
 
         # Transformer encoder/decoder (shared)
-        self.encoder = copy.deepcopy(base_detr.transformer.encoder)
-        self.decoder = copy.deepcopy(base_detr.transformer.decoder)
-        self.d_model = base_detr.transformer.d_model
+        self.encoder = copy.deepcopy(base_detr_rgb.transformer.encoder)
+        self.decoder = copy.deepcopy(base_detr_rgb.transformer.decoder)
+        self.d_model = base_detr_rgb.transformer.d_model
 
         # Query embeddings
-        self.query_embed = copy.deepcopy(base_detr.query_embed)
+        self.query_embed = copy.deepcopy(base_detr_rgb.query_embed)
 
         # Heads (re-init class head to (num_classes+1); keep bbox head)
-        in_dim = base_detr.class_embed.in_features
+        in_dim = base_detr_rgb.class_embed.in_features
         self.class_embed = nn.Linear(in_dim, num_classes + 1)
         nn.init.xavier_uniform_(self.class_embed.weight)
         nn.init.constant_(self.class_embed.bias, 0.0)
 
-        self.bbox_embed  = copy.deepcopy(base_detr.bbox_embed)
+        self.bbox_embed  = copy.deepcopy(base_detr_rgb.bbox_embed)
 
         # Aux loss the same as base
-        self.aux_loss = getattr(base_detr, "aux_loss", True)
+        self.aux_loss = getattr(base_detr_rgb, "aux_loss", True)
 
         # New: cross-encoder fusion block (train from scratch)
         self.fuse = CrossEncFuse(d_model=self.d_model, nhead=nhead, dropout=0.1, ffn_dim=2048)

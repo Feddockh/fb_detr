@@ -29,9 +29,13 @@ from vis import CSVLogger, show_pair, extract_components, plot_from_csv
 # ======================
 # ====== CONFIG ========
 # ======================
-OUTPUT_DIR       = "runs/dual_detr_r50_rivendale_v5"
+OUTPUT_DIR       = "runs/dual_detr_r50_rivendale_v5_pretrained"
+# WEIGHTS          = "detr-r50-e632da11.pth"
+RGB_WEIGHTS      = "runs/rgb_detr_r50_rivendale_v5/checkpoint_last.pth"
+NIR_WEIGHTS      = "detr-r50-e632da11.pth"
 EPOCHS           = 200
 FROZEN_EPOCHS    = 20
+FREEZE_RGB_BACKBONE = True # Keeps the backbone frozen throughout the training
 BATCH_SIZE       = 2
 NUM_WORKERS      = 4
 BASE_LR          = 1e-3
@@ -246,10 +250,10 @@ def main():
     print(f"Training for {NUM_CLASSES} classes: {train_ds.classes}")
 
     # Build dual model from pretrained DETR-R50 and adapt to NUM_CLASSES
-    base_detr, _ = detr_r50.pretrained_detr_r50()
-    base_detr = detr_r50.adapt_num_classes(base_detr, num_classes=NUM_CLASSES)
-    print("heads: ", base_detr.transformer.nhead)
-    model = DualDetrCrossEnc(base_detr, num_classes=NUM_CLASSES, nhead=base_detr.transformer.nhead)
+    base_detr_rgb, _ = detr_r50.pretrained_detr_r50(RGB_WEIGHTS, num_classes=NUM_CLASSES)
+    base_detr_nir, _ = detr_r50.pretrained_detr_r50(NIR_WEIGHTS, num_classes=NUM_CLASSES)
+    print("heads: ", base_detr_rgb.transformer.nhead)
+    model = DualDetrCrossEnc(base_detr_rgb, base_detr_nir, num_classes=NUM_CLASSES, nhead=base_detr_rgb.transformer.nhead)
     model.to(device)
 
     # Freeze backbone layers
@@ -273,7 +277,9 @@ def main():
         # Unfreeze backbone layers
         if epoch >= FROZEN_EPOCHS:
             for n, p in model.named_parameters():
-                if n.startswith("backbone_rgb") or n.startswith("backbone_nir"):
+                if n.startswith("backbone_nir"):
+                    p.requires_grad = True
+                if n.startswith("backbone_rgb") and not FREEZE_RGB_BACKBONE:
                     p.requires_grad = True
 
         tr = train_epoch(model, criterion, optimizer, train_loader, device, epoch, max_norm=MAX_NORM)
