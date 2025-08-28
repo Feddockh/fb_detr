@@ -28,7 +28,7 @@ from vis import CSVLogger, extract_components, plot_from_csv
 # ======================
 # ====== CONFIG ========
 # ======================
-OUTPUT_DIR       = "runs/rgb_detr_r50_rivendale_v5"
+OUTPUT_DIR       = "runs/nir_detr_r50_rivendale_v5"
 EPOCHS           = 200
 FROZEN_EPOCHS    = 20
 BATCH_SIZE       = 4 # Larger batch size possible with single model
@@ -40,7 +40,7 @@ LR_DROP_EPOCH    = 40
 MAX_NORM         = 0.1      # gradient clipping
 
 DATA_ROOT        = "datasets/rivendale_v5"
-CAM_NAME         = "firefly_left" # This is the RGB camera
+CAM_NAME         = "ximea_demosaic" # This is the RGB camera
 
 
 # ============================
